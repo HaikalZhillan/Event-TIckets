@@ -1,6 +1,10 @@
+// xendit.service.ts
+
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance, AxiosError } from 'axios';
+
+
 
 export interface CreateInvoiceItem {
   name: string;
@@ -24,10 +28,14 @@ export interface CreateInvoiceDto {
   invoiceDuration?: number;
   successRedirectUrl?: string;
   failureRedirectUrl?: string;
-  currency?: string;
+  currency?: string; // default 'IDR'
   items?: CreateInvoiceItem[];
   customer?: CreateInvoiceCustomer;
 }
+
+// =========================
+// RESPONSE: data dari Xendit
+// =========================
 
 export type XenditInvoiceStatus =
   | 'PENDING'
@@ -93,6 +101,9 @@ export class XenditService {
     });
   }
 
+  // =========================
+  // CREATE INVOICE
+  // =========================
   async createInvoice(data: CreateInvoiceDto): Promise<XenditInvoiceResponse> {
     try {
       this.logger.log(`Creating Xendit invoice for externalId=${data.externalId}`);
@@ -131,6 +142,9 @@ export class XenditService {
     }
   }
 
+  // =========================
+  // GET INVOICE
+  // =========================
   async getInvoice(invoiceId: string): Promise<XenditInvoiceResponse> {
     try {
       this.logger.debug(`Fetching Xendit invoice: ${invoiceId}`);
@@ -154,6 +168,9 @@ export class XenditService {
     }
   }
 
+  // =========================
+  // EXPIRE INVOICE
+  // =========================
   async expireInvoice(invoiceId: string): Promise<XenditInvoiceResponse> {
     try {
       this.logger.log(`Expiring Xendit invoice: ${invoiceId}`);
@@ -178,6 +195,9 @@ export class XenditService {
     }
   }
 
+  // =========================
+  // VALIDATE WEBHOOK
+  // =========================
   validateWebhookSignature(webhookToken: string | undefined | null): boolean {
     if (!this.callbackToken) {
       this.logger.warn('XENDIT_CALLBACK_TOKEN not configured');

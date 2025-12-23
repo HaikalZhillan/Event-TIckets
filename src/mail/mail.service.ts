@@ -1,5 +1,3 @@
-// Mail.Service.ts
-
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
@@ -59,7 +57,7 @@ export class MailService {
         <body>
           <div class="container">
             <div class="header">
-              <h1>🎟️ Order Confirmation</h1>
+              <h1>Order Confirmation</h1>
             </div>
             <div class="content">
               <p>Hi <strong>${userName}</strong>,</p>
@@ -198,7 +196,7 @@ export class MailService {
               <p>Great news! Your payment has been confirmed and your tickets are ready.</p>
               
               <div class="success-box">
-                <strong>✨ Payment Status: PAID</strong><br>
+                <strong>Payment Status: PAID</strong><br>
                 Paid on: ${new Date(paidAt).toLocaleString('id-ID', { 
                   dateStyle: 'full', 
                   timeStyle: 'short' 
@@ -227,10 +225,10 @@ export class MailService {
               </div>
 
               <div class="event-info">
-                <h2>📅 Event Information</h2>
+                <h2>Event Information</h2>
                 <p><strong>${eventTitle}</strong></p>
-                ${eventLocation ? `<p>📍 <strong>Location:</strong> ${eventLocation}</p>` : ''}
-                <p>🕐 <strong>Date & Time:</strong> ${new Date(eventStartTime).toLocaleString('id-ID', { 
+                ${eventLocation ? `<p><strong>Location:</strong> ${eventLocation}</p>` : ''}
+                <p><strong>Date & Time:</strong> ${new Date(eventStartTime).toLocaleString('id-ID', { 
                   dateStyle: 'full', 
                   timeStyle: 'short' 
                 })}</p>
@@ -238,7 +236,7 @@ export class MailService {
 
               ${tickets && tickets.length > 0 ? `
                 <div class="tickets-list">
-                  <h3>🎟️ Your Tickets</h3>
+                  <h3>Your Tickets</h3>
 
                   ${tickets.map(ticket => `
                     <div class="ticket-item" style="margin-bottom:15px;">
@@ -400,7 +398,7 @@ export class MailService {
         <body>
           <div class="container">
             <div class="header">
-              <h1>⏰ Order Expired</h1>
+              <h1>Order Expired</h1>
             </div>
             <div class="content">
               <p>Hi <strong>${userName}</strong>,</p>
@@ -430,5 +428,14 @@ export class MailService {
       console.error('Error sending order expired email:', error);
       throw error;
     }
+  }
+
+  async sendGenericEmail(data: { to: string; subject: string; html: string }) {
+    await this.transporter.sendMail({
+      from: this.configService.get('MAIL_FROM'),
+      to: data.to,
+      subject: data.subject,
+      html: data.html,
+    });
   }
 }

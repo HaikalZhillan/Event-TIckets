@@ -1,5 +1,3 @@
-// main.ts
-
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
@@ -14,13 +12,11 @@ async function bootstrap() {
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
-      transformOptions: {
-        enableImplicitConversion: true,
-      },
+      transformOptions: { enableImplicitConversion: true },
     }),
   );
 
-  app.useStaticAssets(join(__dirname, '..', 'upload'), {
+  app.useStaticAssets(join(process.cwd(), 'upload'), {
     prefix: '/upload/',
   });
 

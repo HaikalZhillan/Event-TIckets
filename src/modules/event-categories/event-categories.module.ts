@@ -1,17 +1,15 @@
-// event-categories.module.ts
-
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { EventCategoriesService } from './event-categories.service';
 import { EventCategoriesController } from './event-categories.controller';
 import { EventCategory } from '../../entities/event-category.entity';
-import { Event } from '../../entities/event.entity'; // ← PENTING: Tambahkan ini
+import { Event } from '../../entities/event.entity';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       EventCategory,
-      Event, // ← PENTING: Tambahkan ini
+      Event,
     ]),
   ],
   controllers: [EventCategoriesController],

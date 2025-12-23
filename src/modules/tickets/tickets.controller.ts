@@ -38,7 +38,7 @@ export class TicketsController {
     return {
       success: true,
       message: `Retrieved ${tickets.length} ticket(s)`,
-      data: tickets, // ✅ sudah diformat oleh service
+      data: tickets,
       count: tickets.length,
     };
   }
@@ -65,7 +65,6 @@ export class TicketsController {
   ) {
     const downloadInfo = await this.ticketsService.downloadTicket(ticketId, user.id, user.roleName);
 
-    // ✅ filePath sekarang RELATIVE: upload/tickets/xxx.pdf
     const fullPath = join(process.cwd(), downloadInfo.filePath);
 
     if (!existsSync(fullPath)) {
@@ -96,5 +95,4 @@ export class TicketsController {
     return { success: true, message: result.message, data: result.ticket };
   }
 
-  // (endpoint lain boleh tetap seperti punya kamu)
 }

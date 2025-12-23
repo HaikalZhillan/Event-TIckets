@@ -1,3 +1,5 @@
+//app.module.ts
+
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -11,7 +13,7 @@ import { EventCategoriesModule } from './modules/event-categories/event-categori
 import { EventsModule } from './modules/events/events.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { TicketsModule } from './modules/tickets/tickets.module';
-import { PaymentsModule } from './modules/payments/payments.module';
+import { PaymentsModule } from 'src/modules/payments/payments.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { BackgroundJobsModule } from './background-jobs/background-jobs.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';

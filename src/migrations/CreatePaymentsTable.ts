@@ -2,7 +2,6 @@ import { MigrationInterface, QueryRunner, Table, TableForeignKey, TableIndex } f
 
 export class CreatePaymentsTable1764728271552 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // Create payments table
     await queryRunner.createTable(
       new Table({
         name: 'payments',
@@ -77,7 +76,6 @@ export class CreatePaymentsTable1764728271552 implements MigrationInterface {
       true,
     );
 
-    // Create foreign key to orders table
     await queryRunner.createForeignKey(
       'payments',
       new TableForeignKey({
@@ -89,7 +87,6 @@ export class CreatePaymentsTable1764728271552 implements MigrationInterface {
       }),
     );
 
-    // Create indexes
     await queryRunner.createIndex(
       'payments',
       new TableIndex({

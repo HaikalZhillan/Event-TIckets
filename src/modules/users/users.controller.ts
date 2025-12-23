@@ -16,7 +16,7 @@ export class UsersController {
     findAll() {
         return this.usersService.findAll();
     }
-
+    
     @Roles('admin')
     @Get(':id')
     findOne(@Param('id', ParseUUIDPipe) id: string) {

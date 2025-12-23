@@ -1,5 +1,3 @@
-// event-categories.service.ts
-
 import {
   Injectable,
   NotFoundException,
@@ -9,7 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EventCategory } from '../../entities/event-category.entity';
-import { Event } from '../../entities/event.entity'; // ← PENTING: Tambahkan ini
+import { Event } from '../../entities/event.entity';
 import { CreateEventCategoryDto } from './dto/create-event-category.dto';
 import { UpdateEventCategoryDto } from './dto/update-event-category.dto';
 import { FilterEventCategoryDto } from './dto/filter-event-category.dto';
@@ -20,7 +18,7 @@ export class EventCategoriesService {
     @InjectRepository(EventCategory)
     private readonly categoryRepository: Repository<EventCategory>,
     
-    @InjectRepository(Event) // ← PENTING: Tambahkan ini
+    @InjectRepository(Event)
     private readonly eventRepository: Repository<Event>,
   ) {}
 
@@ -172,11 +170,9 @@ export class EventCategoriesService {
     return await this.categoryRepository.save(category);
   }
 
-  // ✅ FIX: Soft Delete dengan validasi
   async softDelete(id: string) {
     const category = await this.findOne(id);
 
-    // Cek apakah ada event yang masih menggunakan category ini
     const eventsCount = await this.eventRepository.count({
       where: { categoryId: id },
     });
@@ -198,11 +194,9 @@ export class EventCategoriesService {
     };
   }
 
-  // ✅ FIX: Hard Delete dengan validasi
   async remove(id: string) {
     const category = await this.findOne(id);
 
-    // Cek apakah ada event yang menggunakan category ini
     const eventsCount = await this.eventRepository.count({
       where: { categoryId: id },
     });

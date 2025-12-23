@@ -1,102 +1,104 @@
 import {
-  IsString,
-  IsNumber,
-  IsOptional,
-  IsBoolean,
+    IsString,
+    IsNotEmpty,
+    IsOptional,
+    IsNumber,
+    IsEnum,
+    IsUUID,
+    IsDateString,
+    IsBoolean,
+    IsEmail,
 } from 'class-validator';
+import { XenditWebhookStatus } from 'src/common/enums/status-xendit.enum';
+import { Type } from 'class-transformer';
 
-export class PaymentWebhookDto {
+// Kita ubah interface dari xendit.types.ts menjadi class DTO
+export class XenditWebhookDto {
+    @IsString()
+    @IsNotEmpty()
+    id: string;
 
-  @IsString()
-  @IsOptional()
-  externalId?: string; 
+    // Kita asumsikan external_id adalah UUID order Anda.
+    @IsUUID()
+    @IsNotEmpty()
+    external_id: string;
 
-  @IsString()
-  @IsOptional()
-  external_id?: string; 
+    // Validasi menggunakan Enum yang baru kita buat
+    @IsEnum(XenditWebhookStatus)
+    @IsNotEmpty()
+    status: XenditWebhookStatus;
 
-  @IsString()
-  status: string; 
+    @IsNumber()
+    @IsNotEmpty()
+    @Type(() => Number) // Membantu transformasi jika payload mengirim angka sebagai string
+    amount: number;
 
-  @IsNumber()
-  @IsOptional()
-  amount?: number;
+    @IsDateString()
+    @IsNotEmpty()
+    created: string;
 
-  @IsNumber()
-  @IsOptional()
-  paid_amount?: number;
+    @IsDateString()
+    @IsNotEmpty()
+    updated: string;
 
-  @IsString()
-  @IsOptional()
-  paymentMethod?: string; 
+    // --- Bidang Opsional ---
 
-  @IsString()
-  @IsOptional()
-  payment_method?: string; 
+    @IsOptional()
+    @IsString()
+    user_id?: string;
 
-  @IsString()
-  @IsOptional()
-  payment_channel?: string;
+    @IsOptional()
+    @IsBoolean()
+    is_high?: boolean;
 
-  @IsString()
-  @IsOptional()
-  payment_destination?: string;
+    @IsOptional()
+    @IsString()
+    payment_method?: string;
 
-  @IsString()
-  @IsOptional()
-  id?: string; 
+    @IsOptional()
+    @IsString()
+    merchant_name?: string;
 
-  @IsString()
-  @IsOptional()
-  user_id?: string;
+    @IsOptional()
+    @IsNumber()
+    @Type(() => Number)
+    paid_amount?: number;
 
-  @IsString()
-  @IsOptional()
-  merchant_name?: string;
+    @IsOptional()
+    @IsString()
+    bank_code?: string;
 
-  @IsString()
-  @IsOptional()
-  bank_code?: string;
+    @IsOptional()
+    @IsDateString()
+    paid_at?: string;
 
-  @IsString()
-  @IsOptional()
-  currency?: string;
+    @IsOptional()
+    @IsEmail()
+    payer_email?: string;
 
-  @IsNumber()
-  @IsOptional()
-  adjusted_received_amount?: number;
+    @IsOptional()
+    @IsString()
+    description?: string;
 
-  @IsNumber()
-  @IsOptional()
-  fees_paid_amount?: number;
+    @IsOptional()
+    @IsNumber()
+    @Type(() => Number)
+    adjusted_received_amount?: number;
 
-  @IsBoolean()
-  @IsOptional()
-  is_high?: boolean;
+    @IsOptional()
+    @IsNumber()
+    @Type(() => Number)
+    fees_paid_amount?: number;
 
-  @IsString()
-  @IsOptional()
-  payer_email?: string;
+    @IsOptional()
+    @IsString()
+    currency?: string;
 
-  @IsString()
-  @IsOptional()
-  description?: string;
+    @IsOptional()
+    @IsString()
+    payment_channel?: string;
 
-  @IsString()
-  @IsOptional()
-  paid_at?: string;
-
-  @IsString()
-  @IsOptional()
-  created?: string;
-
-  @IsString()
-  @IsOptional()
-  updated?: string;
-
-  @IsString()
-  @IsOptional()
-  expiry_date?: string;
-
-  [key: string]: any;
+    @IsOptional()
+    @IsString()
+    payment_destination?: string;
 }

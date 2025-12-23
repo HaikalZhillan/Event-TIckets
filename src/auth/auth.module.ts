@@ -19,7 +19,7 @@ import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
         return {
           secret: configService.get<string>('JWT_SECRET'),
           signOptions: {
-            expiresIn: '24h' as const, // Gunakan 'as const' untuk literal type
+            expiresIn: '24h' as const,
           },
         };
       },

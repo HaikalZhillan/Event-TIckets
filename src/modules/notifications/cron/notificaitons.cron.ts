@@ -12,7 +12,6 @@ export class NotificationsCron {
     private readonly genericMail: GenericMailService,
   ) {}
 
-  // jalan tiap 1 menit (buat testing cepat). Nanti kalau mau bisa diganti.
   @Cron(CronExpression.EVERY_MINUTE)
   async processPendingEmails() {
     const pending = await this.notificationsService.getPendingScheduledDue(
@@ -24,7 +23,6 @@ export class NotificationsCron {
       try {
         if (n.type !== NotificationType.EMAIL) continue;
 
-        // payload bisa string JSON atau object
         const payload =
           typeof n.payload === 'string'
             ? this.safeJsonParse(n.payload)

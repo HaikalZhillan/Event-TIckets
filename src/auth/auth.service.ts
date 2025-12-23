@@ -23,7 +23,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
   ) {}
 
-  async register(registerDto: RegisterDto) {
+   async register(registerDto: RegisterDto) {
     const { email, name, password } = registerDto;
 
     const existingUser = await this.userRepository.findOne({
@@ -115,7 +115,7 @@ export class AuthService {
     if (!user) {
       throw new NotFoundException('User not found');
     }
-
+    
     const role = await this.roleRepository.findOne({
       where: { id: user.roleId },
     });

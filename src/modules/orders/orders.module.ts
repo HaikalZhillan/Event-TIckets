@@ -1,4 +1,4 @@
-//orders.module
+// Order.module.ts
 
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -8,7 +8,7 @@ import { Order } from '../../entities/order.entity';
 import { Event } from '../../entities/event.entity';
 import { MailModule } from '../../mail/mail.module';
 import { TicketsModule } from '../tickets/tickets.module';
-import { PaymentsModule } from '../payments/payments.module';
+import { PaymentsModule } from '../payments/payment.module';
 
 @Module({
   imports: [

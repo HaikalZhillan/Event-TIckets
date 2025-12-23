@@ -16,8 +16,8 @@ import { EventCategoriesService } from './event-categories.service';
 import { CreateEventCategoryDto } from './dto/create-event-category.dto';
 import { UpdateEventCategoryDto } from './dto/update-event-category.dto';
 import { FilterEventCategoryDto } from './dto/filter-event-category.dto';
-import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard'; // ✅ FIX: Ubah path
-import { RolesGuard } from 'src/common/guards/roles.guard'; // ✅ FIX: Ubah path
+import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
+import { RolesGuard } from 'src/common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 

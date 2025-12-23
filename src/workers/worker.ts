@@ -7,7 +7,6 @@ const worker = new Worker(
     console.log(' Job name:', job.name);
     console.log('Job data:', job.data);
 
-    // simulasi proses
     return { success: true };
   },
   {
