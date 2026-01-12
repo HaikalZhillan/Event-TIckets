@@ -1,345 +1,376 @@
+//tickets.service.ts
+
 import {
   Injectable,
+  Logger,
   NotFoundException,
   BadRequestException,
-  Logger,
   ForbiddenException,
-  InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
+import { Repository, In } from 'typeorm';
+import * as QRCode from 'qrcode';
+const PDFDocument = require('pdfkit');
+import * as fs from 'fs';
+import * as path from 'path';
+import { v4 as uuidv4 } from 'uuid';
+
 import { Ticket, TicketStatus } from '../../entities/ticket.entity';
 import { Order } from '../../entities/order.entity';
-import * as QRCode from 'qrcode';
-import PDFDocument from 'pdfkit';
-import { createWriteStream, existsSync, mkdirSync, unlinkSync } from 'fs';
-import { join } from 'path';
-import { ConfigService } from '@nestjs/config';
+import { Event } from '../../entities/event.entity';
 
 @Injectable()
 export class TicketsService {
   private readonly logger = new Logger(TicketsService.name);
   private readonly uploadDir: string;
-  private readonly qrDir: string;
-  private readonly publicUrl: string;
 
   constructor(
     @InjectRepository(Ticket)
     private readonly ticketRepository: Repository<Ticket>,
     @InjectRepository(Order)
     private readonly orderRepository: Repository<Order>,
-    private readonly configService: ConfigService,
+    @InjectRepository(Event)
+    private readonly eventRepository: Repository<Event>,
   ) {
-    this.uploadDir = this.configService.get<string>('UPLOAD_DIR', './upload/tickets');
-    this.qrDir = this.configService.get<string>('QR_DIR', './upload/qrcodes');
-    this.publicUrl = this.configService.get<string>('PUBLIC_URL', 'http://localhost:3000');
-
-    this.ensureDirectories();
-  }
-
-  private ensureDirectories(): void {
-    try {
-      if (!existsSync(this.uploadDir)) mkdirSync(this.uploadDir, { recursive: true });
-      if (!existsSync(this.qrDir)) mkdirSync(this.qrDir, { recursive: true });
-    } catch (error: any) {
-      this.logger.error(`Failed to create directories: ${error?.message ?? error}`);
-      throw new InternalServerErrorException('Failed to initialize file storage');
+    this.uploadDir = process.cwd() + '/uploads';
+    
+    if (!fs.existsSync(this.uploadDir)) {
+      fs.mkdirSync(this.uploadDir, { recursive: true });
+      this.logger.log(`Created uploads directory: ${this.uploadDir}`);
     }
   }
 
-  private generateTicketNumber(orderNumber: string, index: number): string {
-    const seq = String(index + 1).padStart(3, '0');
-    return `TCK-${orderNumber}-${seq}-${Date.now()}`;
-  }
-
-  private generateSeatNumber(offset: number, index: number): string {
-    const n = offset + index;
-    const rows = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    const row = rows[Math.floor(n / 10)] ?? 'A';
-    const seat = (n % 10) + 1;
-    return `${row}${seat}`;
-  }
-
-  private async getExistingTicketCountForEvent(eventId: string): Promise<number> {
-    return this.ticketRepository.count({ where: { eventId } });
-  }
-
-  private async generateQRCode(ticketId: string, ticketData: any): Promise<string> {
+  async generateTicketsForOrder(orderId: string): Promise<Ticket[]> {
     try {
-      const qrData = JSON.stringify({
-        ticketId,
-        data: ticketData,
-        timestamp: new Date().toISOString(),
+      this.logger.log(`Creating tickets for order ${orderId}`);
+
+      const order = await this.orderRepository.findOne({
+        where: { id: orderId },
+        relations: ['user', 'event'],
       });
 
-      const fileName = `qr-${ticketId}.png`;
-      const filePath = join(this.qrDir, fileName);
+      if (!order) {
+        throw new NotFoundException(`Order with ID '${orderId}' not found`);
+      }
 
-      await QRCode.toFile(filePath, qrData, {
-        width: 300,
-        margin: 2,
-        errorCorrectionLevel: 'H',
-        type: 'png',
+      if (!order.user || !order.event) {
+        this.logger.error(`Order ${orderId} is missing user or event relations`);
+        throw new Error('Order data is incomplete');
+      }
+
+      const existingTickets = await this.ticketRepository.find({
+        where: { orderId: order.id },
       });
 
-      return `${this.publicUrl}/upload/qrcodes/${fileName}`;
-    } catch (error: any) {
-      this.logger.error(`Failed to generate QR code: ${error?.message ?? error}`);
-      throw new InternalServerErrorException('Failed to generate QR code');
+      if (existingTickets.length > 0) {
+        this.logger.log(`ℹTickets already exist for order ${orderId}`);
+        return existingTickets;
+      }
+
+      const ticketsToCreate: Partial<Ticket>[] = [];
+
+      for (let i = 0; i < order.quantity; i++) {
+        const ticketNumber = this.generateTicketNumber();
+
+        const qrCodeFileName = await this.generateQRCode(ticketNumber);
+
+        const seatNumber = this.generateSeatNumber(i);
+
+        const ticketData: Partial<Ticket> = {
+          id: uuidv4(),
+          ticketNumber,
+          seatNumber,
+          eventId: order.eventId,
+          orderId: order.id,
+          attendeeName: order.user.name || null,
+          attendeeEmail: order.user.email || null,
+          status: TicketStatus.ACTIVE,
+          createdBy: order.userId,
+          paidAt: new Date(),
+          qrCodeUrl: qrCodeFileName,
+        };
+
+        ticketsToCreate.push(ticketData);
+      }
+
+      const savedTickets = await this.ticketRepository.save(
+        ticketsToCreate as Ticket[],
+      );
+
+      this.logger.log(`Saved ${savedTickets.length} tickets to database`);
+
+      const pdfPromises = savedTickets.map(async (ticket) => {
+        const pdfFileName = await this.generatePDF(ticket, order);
+        ticket.pdfUrl = pdfFileName;
+        return ticket;
+      });
+
+      const ticketsWithPdf = await Promise.all(pdfPromises);
+
+      const finalTickets = await this.ticketRepository.save(ticketsWithPdf);
+
+      this.logger.log(`Successfully created ${finalTickets.length} tickets for order ${orderId}`);
+
+      return finalTickets;
+    } catch (error) {
+      this.logger.error(`Failed to create tickets for order ${orderId}:`, error);
+      throw error;
     }
   }
 
-  private async generatePDFTicket(ticket: Ticket, order: Order, event: any): Promise<string> {
-    const fileName = `ticket-${ticket.id}.pdf`;
-    const filePath = join(this.uploadDir, fileName);
+  private generateTicketNumber(): string {
+    const timestamp = Date.now().toString(36);
+    const randomPart = Math.random().toString(36).substring(2, 8);
+    return `TKT-${timestamp}-${randomPart}`.toUpperCase();
+  }
 
-    return new Promise((resolve, reject) => {
+  private generateSeatNumber(index: number): string {
+    const section = String.fromCharCode(65 + Math.floor(index / 100));
+    const row = Math.floor((index % 100) / 10) + 1;
+    const seat = (index % 10) + 1;
+    return `${section}${row}-${seat}`;
+  }
+
+  private async generateQRCode(ticketNumber: string): Promise<string> {
+    try {
+      const qrCodeFileName = `qr-${ticketNumber}.png`;
+      const qrCodePath = path.join(this.uploadDir, qrCodeFileName);
+
+      await QRCode.toFile(qrCodePath, ticketNumber, {
+        width: 200,
+        margin: 1,
+        color: { dark: '#000000', light: '#FFFFFF' },
+      });
+
+      this.logger.log(`Generated QR code for ticket ${ticketNumber}`);
+      return qrCodeFileName;
+    } catch (error) {
+      this.logger.error(`Failed to generate QR code for ticket ${ticketNumber}:`, error);
+      throw error;
+    }
+  }
+
+  private async generatePDF(ticket: Ticket, order: Order): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
       try {
-        const doc = new PDFDocument({ size: 'A4', margin: 50 });
-        const stream = createWriteStream(filePath);
+        const pdfFileName = `ticket-${ticket.ticketNumber}.pdf`;
+        const pdfPath = path.join(this.uploadDir, pdfFileName);
 
-        doc.on('error', (error: any) => reject(error));
-        stream.on('error', (error: any) => reject(error));
+        const doc = new PDFDocument({
+          size: 'A5',
+          layout: 'landscape',
+          margin: 30,
+        });
 
+        const stream = fs.createWriteStream(pdfPath);
         doc.pipe(stream);
 
-        doc.fontSize(28).font('Helvetica-Bold').text('EVENT TICKET', { align: 'center' }).moveDown();
-        doc.fontSize(20).font('Helvetica-Bold').fillColor('#667eea').text(event?.title || 'Event', { align: 'center' }).moveDown(0.5);
+        doc.rect(0, 0, doc.page.width, doc.page.height).fill('#f8f9fa');
 
-        doc.fontSize(12).font('Helvetica').fillColor('#666')
-          .text(`Ticket Number: ${ticket.ticketNumber}`, { align: 'center' })
-          .text(`Ticket ID: ${ticket.id}`, { align: 'center' })
-          .text(`Seat: ${ticket.seatNumber}`, { align: 'center' })
-          .moveDown(2);
+        doc.fillColor('#4F46E5')
+           .fontSize(24)
+           .font('Helvetica-Bold')
+           .text('EVENT TICKET', { align: 'center' });
+        
+        doc.moveDown();
+        
+        // Ticket info
+        doc.fontSize(14)
+           .fillColor('#1F2937')
+           .text(`Event: ${(order.event as any)?.title || 'N/A'}`);
+        
+        const eventStartTime = (order.event as any)?.startTime || (order.event as any)?.eventDate;
+        if (eventStartTime) {
+          doc.text(`Date: ${new Date(eventStartTime).toLocaleDateString()}`);
+          doc.text(`Time: ${new Date(eventStartTime).toLocaleTimeString()}`);
+        }
+        
+        doc.text(`Location: ${(order.event as any)?.location || 'TBA'}`);
+        doc.moveDown();
+        doc.text(`Ticket Number: ${ticket.ticketNumber}`);
+        doc.text(`Seat: ${ticket.seatNumber}`);
+        doc.text(`Attendee: ${ticket.attendeeName || 'Guest'}`);
+        doc.moveDown();
+
+        // Add QR code
+        const qrCodePath = path.join(this.uploadDir, ticket.qrCodeUrl);
+        if (fs.existsSync(qrCodePath)) {
+          doc.image(qrCodePath, {
+            fit: [150, 150],
+            align: 'center',
+          });
+        }
 
         doc.end();
 
-        stream.on('finish', () => resolve(`${this.publicUrl}/upload/tickets/${fileName}`));
-      } catch (error: any) {
+        stream.on('finish', () => {
+          this.logger.log(`Generated PDF for ticket ${ticket.ticketNumber}`);
+          resolve(pdfFileName);
+        });
+
+        stream.on('error', (error) => {
+          this.logger.error(`Failed to write PDF for ticket ${ticket.ticketNumber}:`, error);
+          reject(error);
+        });
+      } catch (error) {
+        this.logger.error(`Failed to generate PDF for ticket ${ticket.ticketNumber}:`, error);
         reject(error);
       }
     });
   }
 
-  async generateTicketsForOrder(orderId: string): Promise<Ticket[]> {
+  async getTicketsByOrderId(orderId: string, userId?: string): Promise<Ticket[]> {
     const order = await this.orderRepository.findOne({
       where: { id: orderId },
-      relations: ['event', 'user'],
+      relations: ['tickets'],
     });
 
-    if (!order) throw new NotFoundException(`Order '${orderId}' not found`);
-    if (order.status !== 'paid') {
-      throw new BadRequestException(`Order status must be 'paid', current status: ${order.status}`);
+    if (!order) {
+      throw new NotFoundException(`Order with ID '${orderId}' not found`);
     }
 
-    const existingTickets = await this.ticketRepository.find({ where: { orderId } });
-    if (existingTickets.length > 0) return existingTickets;
-
-    const event = order.event;
-    const seatOffset = await this.getExistingTicketCountForEvent(order.eventId);
-
-    const tickets: Ticket[] = [];
-
-    for (let i = 0; i < order.quantity; i++) {
-      const seatNumber = this.generateSeatNumber(seatOffset, i);
-      const ticketNumber = this.generateTicketNumber(order.orderNumber, i);
-
-      let ticket = this.ticketRepository.create({
-        orderId: order.id,
-        eventId: order.eventId,
-        ticketNumber,
-        seatNumber,
-        qrCodeUrl: '',
-        pdfUrl: '',
-        createdBy: order.userId,
-        status: TicketStatus.ACTIVE,
-        paidAt: new Date(),
-      });
-
-      ticket = await this.ticketRepository.save(ticket);
-
-      try {
-        ticket.qrCodeUrl = await this.generateQRCode(ticket.id, {
-          ticketId: ticket.id,
-          ticketNumber: ticket.ticketNumber,
-          seatNumber: ticket.seatNumber,
-          orderId: order.id,
-          eventId: order.eventId,
-        });
-
-        ticket.pdfUrl = await this.generatePDFTicket(ticket, order, event);
-
-        ticket = await this.ticketRepository.save(ticket);
-        tickets.push(ticket);
-      } catch (err: any) {
-        await this.ticketRepository.remove(ticket);
-        throw err;
-      }
-    }
-
-    return tickets;
-  }
-
-  async getTicketsByOrderId(orderId: string, userId: string, roleName?: string): Promise<any[]> {
-    const order = await this.orderRepository.findOne({ where: { id: orderId } });
-    if (!order) throw new NotFoundException(`Order '${orderId}' not found`);
-
-    if (roleName !== 'admin' && (order as any).userId !== userId) {
+    if (userId && order.userId !== userId) {
       throw new ForbiddenException('You do not have permission to view these tickets');
     }
 
-    const tickets = await this.ticketRepository.find({
-      where: { orderId },
-      relations: ['order', 'order.event'],
-    });
-
-    if (tickets.length === 0) throw new NotFoundException('No tickets found for this order');
-
-    return tickets.map((ticket) => this.formatTicketResponse(ticket));
+    return order.tickets || [];
   }
 
-  async downloadTicket(ticketId: string, userId: string, roleName?: string): Promise<{ filePath: string; fileName: string }> {
+  async getTicketById(ticketId: string, userId?: string): Promise<Ticket> {
     const ticket = await this.ticketRepository.findOne({
       where: { id: ticketId },
-      relations: ['order'],
+      relations: ['order', 'order.user', 'event'],
     });
-    if (!ticket) throw new NotFoundException(`Ticket '${ticketId}' not found`);
 
-    if (roleName !== 'admin' && (ticket.order as any).userId !== userId) {
-      throw new ForbiddenException('You do not have permission to download this ticket');
+    if (!ticket) {
+      throw new NotFoundException(`Ticket with ID '${ticketId}' not found`);
     }
 
-    const pdfUrl = ticket.pdfUrl || '';
-    const match = pdfUrl.match(/\/upload\/tickets\/(.+)$/);
-    if (!match) throw new BadRequestException('Invalid PDF path');
+    if (userId && ticket.order.userId !== userId) {
+      throw new ForbiddenException('You do not have permission to view this ticket');
+    }
 
-    const fileNameOnDisk = match[1];
+    return ticket;
+  }
 
-    const relativePath = join('upload', 'tickets', fileNameOnDisk);
+  async validateTicket(ticketId: string): Promise<{
+    valid: boolean;
+    ticket?: any;
+    message: string;
+  }> {
+    const ticket = await this.ticketRepository.findOne({
+      where: { id: ticketId },
+      relations: ['order', 'order.user', 'event'],
+    });
 
-    const absolutePath = join(process.cwd(), relativePath);
-    if (!existsSync(absolutePath)) throw new NotFoundException('Ticket file not found on disk');
+    if (!ticket) {
+      return { valid: false, message: 'Ticket not found' };
+    }
+
+    if (ticket.status !== TicketStatus.ACTIVE) {
+      return {
+        valid: false,
+        ticket: { ticketNumber: ticket.ticketNumber, status: ticket.status },
+        message: `Ticket is ${ticket.status}`,
+      };
+    }
+
+    if (ticket.checkedIn) {
+      return {
+        valid: false,
+        ticket: { ticketNumber: ticket.ticketNumber, checkedInAt: ticket.checkedInAt },
+        message: 'Ticket has already been used',
+      };
+    }
 
     return {
-      filePath: relativePath,
-      fileName: `ticket-${ticket.seatNumber}.pdf`,
+      valid: true,
+      ticket: {
+        id: ticket.id,
+        ticketNumber: ticket.ticketNumber,
+        seatNumber: ticket.seatNumber,
+        attendeeName: ticket.attendeeName,
+        eventTitle: (ticket.event as any)?.title,
+        eventLocation: (ticket.event as any)?.location,
+      },
+      message: 'Ticket is valid',
     };
   }
 
-  async validateTicket(ticketId: string): Promise<{ valid: boolean; message: string; ticket?: any }> {
+  async checkInTicket(ticketId: string, checkedInBy: string): Promise<Ticket> {
+    const validation = await this.validateTicket(ticketId);
+
+    if (!validation.valid) {
+      throw new BadRequestException(validation.message);
+    }
+
     const ticket = await this.ticketRepository.findOne({
       where: { id: ticketId },
-      relations: ['order', 'order.event', 'order.user'],
     });
-
-    if (!ticket) return { valid: false, message: 'Ticket not found' };
-
-    if (ticket.status !== TicketStatus.ACTIVE) {
-      return {
-        valid: false,
-        message: `Ticket status is '${ticket.status}', only 'active' tickets can be checked in`,
-        ticket: this.formatTicketResponse(ticket),
-      };
-    }
-
-    if (ticket.checkedIn) {
-      return {
-        valid: false,
-        message: `Ticket already checked in at ${ticket.checkedInAt ? new Date(ticket.checkedInAt).toLocaleString('id-ID') : '-'}`,
-        ticket: this.formatTicketResponse(ticket),
-      };
-    }
-
-    return { valid: true, message: 'Ticket is valid and ready for check-in', ticket: this.formatTicketResponse(ticket) };
-  }
-
-  async checkInTicket(ticketId: string, checkedInBy?: string): Promise<{ message: string; ticket: any }> {
-    const ticket = await this.ticketRepository.findOne({ where: { id: ticketId } });
-    if (!ticket) throw new NotFoundException(`Ticket '${ticketId}' not found`);
-
-    if (ticket.status !== TicketStatus.ACTIVE) {
-      throw new BadRequestException(`Ticket status is '${ticket.status}', only active tickets can be checked in`);
-    }
-    if (ticket.checkedIn) {
-      throw new BadRequestException(`Ticket already checked in at ${ticket.checkedInAt ? new Date(ticket.checkedInAt).toLocaleString('id-ID') : '-'}`);
-    }
 
     ticket.checkedIn = true;
     ticket.checkedInAt = new Date();
+    ticket.checkedInBy = checkedInBy;
     ticket.status = TicketStatus.USED;
-    ticket.checkedInBy = checkedInBy ?? null;
 
-    await this.ticketRepository.save(ticket);
-    return { message: 'Ticket checked in successfully', ticket: this.formatTicketResponse(ticket) };
+    const savedTicket = await this.ticketRepository.save(ticket);
+    this.logger.log(`Ticket ${ticket.ticketNumber} checked in`);
+
+    return savedTicket;
   }
 
-    async batchCancelTickets(
-    ticketIds: string[],
-    reason?: string,
-  ): Promise<{ cancelled: number; errors: any[] }> {
-    if (!ticketIds || ticketIds.length === 0) {
-      throw new BadRequestException('No ticket IDs provided');
-    }
+  async batchCancelTickets(ticketIds: string[], reason: string): Promise<void> {
+    if (!ticketIds || ticketIds.length === 0) return;
 
-    if (ticketIds.length > 500) {
-      throw new BadRequestException('Maximum 500 tickets per batch operation');
-    }
-
-    const cancelled: string[] = [];
-    const errors: { ticketId: string; error: string }[] = [];
-
-    for (const ticketId of ticketIds) {
-      try {
-        const ticket = await this.ticketRepository.findOne({
-          where: { id: ticketId },
-        });
-
-        if (!ticket) {
-          errors.push({ ticketId, error: 'Ticket not found' });
-          continue;
-        }
-
-        if (ticket.status === TicketStatus.USED) {
-          errors.push({ ticketId, error: 'Cannot cancel used ticket' });
-          continue;
-        }
-
-        ticket.status = TicketStatus.CANCELLED;
-        ticket.cancelledAt = new Date();
-        ticket.notes = reason || 'Cancelled by batch operation';
-
-        await this.ticketRepository.save(ticket);
-        cancelled.push(ticket.id);
-      } catch (err: any) {
-        errors.push({
-          ticketId,
-          error: err?.message ?? String(err),
-        });
-      }
-    }
-
-    this.logger.log(
-      `Batch cancelled ${cancelled.length} tickets, ${errors.length} errors`,
+    await this.ticketRepository.update(
+      { id: In(ticketIds) },
+      {
+        status: TicketStatus.CANCELLED,
+        cancelledAt: new Date(),
+        notes: reason,
+      },
     );
 
-    return { cancelled: cancelled.length, errors };
+    this.logger.log(`Cancelled ${ticketIds.length} tickets: ${reason}`);
   }
 
+  async downloadTicket(ticketId: string, userId: string): Promise<string> {
+    const ticket = await this.getTicketById(ticketId, userId);
 
-  private formatTicketResponse(ticket: Ticket): any {
-    return {
-      id: ticket.id,
-      ticketNumber: ticket.ticketNumber,
-      seatNumber: ticket.seatNumber,
-      status: ticket.status,
-      qrCodeUrl: ticket.qrCodeUrl,
-      pdfUrl: ticket.pdfUrl,
-      checkedIn: ticket.checkedIn,
-      checkedInAt: ticket.checkedInAt,
-      checkedInBy: ticket.checkedInBy,
-      attendeeName: ticket.attendeeName,
-      attendeeEmail: ticket.attendeeEmail,
-      createdAt: ticket.createdAt,
-    };
+    if (!ticket.pdfUrl) {
+      const order = await this.orderRepository.findOne({
+        where: { id: ticket.orderId },
+        relations: ['user', 'event'],
+      });
+
+      const pdfFileName = await this.generatePDF(ticket, order);
+      await this.ticketRepository.update(ticket.id, { pdfUrl: pdfFileName });
+      return pdfFileName;
+    }
+
+    return ticket.pdfUrl;
+  }
+
+  async regenerateTicket(ticketId: string, userId: string): Promise<Ticket> {
+    const ticket = await this.getTicketById(ticketId, userId);
+
+    const order = await this.orderRepository.findOne({
+      where: { id: ticket.orderId },
+      relations: ['user', 'event'],
+    });
+
+    const qrCodeFileName = await this.generateQRCode(ticket.ticketNumber);
+    const pdfFileName = await this.generatePDF(ticket, order);
+
+    await this.ticketRepository.update(ticket.id, { 
+      qrCodeUrl: qrCodeFileName, 
+      pdfUrl: pdfFileName 
+    });
+
+    ticket.qrCodeUrl = qrCodeFileName;
+    ticket.pdfUrl = pdfFileName;
+
+    this.logger.log(`Regenerated ticket: ${ticket.ticketNumber}`);
+    return ticket;
   }
 }

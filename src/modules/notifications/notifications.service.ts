@@ -1,292 +1,218 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, LessThanOrEqual, Repository } from 'typeorm';
-import { Notification } from 'src/entities/notification.entity';
-import { FilterNotificationDto } from './dto/filter-notification.dto';
-
-export enum NotificationType {
-  EMAIL = 'email',
-  IN_APP = 'in-app',
-  SMS = 'sms',
-}
-
-export enum NotificationStatus {
-  PENDING = 'pending',
-  SENT = 'sent',
-  FAILED = 'failed',
-  READ = 'read',
-}
-
-export enum NotificationCategory {
-  ORDER_CREATED = 'order_created',
-  PAYMENT_PENDING = 'payment_pending',
-  PAYMENT_SUCCESS = 'payment_success',
-  PAYMENT_FAILED = 'payment_failed',
-  ORDER_CANCELLED = 'order_cancelled',
-  ORDER_EXPIRED = 'order_expired',
-  TICKET_GENERATED = 'ticket_generated',
-  EVENT_REMINDER = 'event_reminder',
-}
+import { Repository, Between } from 'typeorm';
+import { Ticket } from '../../entities/ticket.entity';
+import { Event } from '../../entities/event.entity';
+import { Order } from '../../entities/order.entity';
+import { User } from '../../entities/user.entity';
+import { Notification } from '../../entities/notification.entity';
+import { EmailService } from './email.service';
+import { Cron } from '@nestjs/schedule';
 
 @Injectable()
 export class NotificationsService {
+  private readonly logger = new Logger(NotificationsService.name);
+
   constructor(
+    private readonly emailService: EmailService,
     @InjectRepository(Notification)
-    private readonly notificationRepository: Repository<Notification>,
+    private notificationsRepo: Repository<Notification>,
+    @InjectRepository(Event)
+    private eventsRepo: Repository<Event>,
+    @InjectRepository(Order)
+    private ordersRepo: Repository<Order>,
+    @InjectRepository(Ticket)
+    private ticketsRepo: Repository<Ticket>,
   ) {}
 
-  async create(data: {
-    userId: string;
-    subject: string;
-    message: string;
-    type?: NotificationType | string;
-    category?: NotificationCategory | string;
-    payload?: any;
-    status?: NotificationStatus | string;
-    scheduledAt?: Date;
-  }) {
-    const notification = this.notificationRepository.create({
-      userId: data.userId,
-      subject: data.subject,
-      message: data.message,
-      type: data.type || NotificationType.IN_APP,
-      payload: data.payload ? JSON.stringify({
-        ...data.payload,
-        category: data.category,
-      }) : JSON.stringify({ category: data.category }),
-      status: data.status || NotificationStatus.PENDING,
-      scheduledAt: data.scheduledAt,
-    });
+  async sendTicketEmail(
+    user: User,
+    order: Order,
+    tickets: Ticket[],
+  ): Promise<void> {
+    // Get event start time - use startTime (not startDate)
+    const eventStartTime = (order.event as any).startTime || (order.event as any).eventDate;
+    const eventDate = eventStartTime ? new Date(eventStartTime) : new Date();
 
-    return await this.notificationRepository.save(notification);
-  }
-
-  async createEmailNotification(data: {
-    userId: string;
-    subject: string;
-    message: string;
-    category: NotificationCategory | string;
-    payload?: any;
-  }) {
-    return this.create({
-      ...data,
-      type: NotificationType.EMAIL,
-      status: NotificationStatus.PENDING,
-    });
-  }
-
-  async createInAppNotification(data: {
-    userId: string;
-    subject: string;
-    message: string;
-    category: NotificationCategory | string;
-    payload?: any;
-  }) {
-    return this.create({
-      ...data,
-      type: NotificationType.IN_APP,
-      status: NotificationStatus.SENT,
-    });
-  }
-
-  async markAsSent(id: string) {
-    const notification = await this.notificationRepository.findOne({
-      where: { id },
-    });
-
-    if (!notification) {
-      throw new NotFoundException('Notification not found');
-    }
-
-    notification.status = NotificationStatus.SENT;
-    notification.sentAt = new Date();
-
-    return await this.notificationRepository.save(notification);
-  }
-
-  async markAsFailed(id: string) {
-    const notification = await this.notificationRepository.findOne({
-      where: { id },
-    });
-
-    if (!notification) {
-      throw new NotFoundException('Notification not found');
-    }
-
-    notification.status = NotificationStatus.FAILED;
-
-    return await this.notificationRepository.save(notification);
-  }
-
-  async markAsRead(id: string, userId: string) {
-    const notification = await this.notificationRepository.findOne({
-      where: { id, userId, type: NotificationType.IN_APP },
-    });
-
-    if (!notification) {
-      throw new NotFoundException('Notification not found');
-    }
-
-    if (notification.status === NotificationStatus.READ) {
-      return notification;
-    }
-
-    notification.status = NotificationStatus.READ;
-    return await this.notificationRepository.save(notification);
-  }
-
-  async markMultipleAsRead(ids: string[], userId: string) {
-    const result = await this.notificationRepository
-      .createQueryBuilder()
-      .update(Notification)
-      .set({ 
-        status: NotificationStatus.READ,
-        updatedAt: new Date(),
-      })
-      .where('id IN (:...ids)', { ids })
-      .andWhere('userId = :userId', { userId })
-      .andWhere('type = :type', { type: NotificationType.IN_APP })
-      .andWhere('status != :status', { status: NotificationStatus.READ })
-      .execute();
-
-    return {
-      message: `${result.affected} notifications marked as read`,
-      affected: result.affected,
+    const data = {
+      userName: user.name || user.email,
+      eventName: (order.event as any).title,
+      eventDate: eventDate.toLocaleDateString(),
+      eventTime: eventDate.toLocaleTimeString(),
+      eventLocation: (order.event as any).location,
+      // Use ticketNumber (not ticketCode)
+      ticketNumbers: tickets.map((t) => t.ticketNumber),
+      orderTotal: order.totalAmount,
     };
+
+    this.logger.log(`📧 Sending ticket email to ${user.email}`);
+    await this.emailService.sendTicketEmail(user.email, user.id, data);
   }
 
-  async markAllAsRead(userId: string) {
-    const result = await this.notificationRepository
-      .createQueryBuilder()
-      .update(Notification)
-      .set({ 
-        status: NotificationStatus.READ,
-        updatedAt: new Date(),
-      })
-      .where('userId = :userId', { userId })
-      .andWhere('type = :type', { type: NotificationType.IN_APP })
-      .andWhere('status != :status', { status: NotificationStatus.READ })
-      .execute();
+  async scheduleEventReminder(user: User, event: Event): Promise<void> {
+    // Use startTime (not startDate)
+    const eventStartTime = (event as any).startTime || (event as any).eventDate;
+    const eventDate = eventStartTime ? new Date(eventStartTime) : new Date();
+    const reminderTime = new Date(eventDate.getTime() - 24 * 60 * 60 * 1000);
 
-    return {
-      message: `${result.affected} notifications marked as read`,
-      affected: result.affected,
-    };
+    if (reminderTime > new Date()) {
+      this.logger.log(
+        `⏰ Reminder scheduled for event ${event.id} at ${reminderTime}`,
+      );
+    }
   }
 
-  async findByUser(userId: string, filterDto: FilterNotificationDto) {
-    const { status, type, page = 1, limit = 20 } = filterDto;
+  @Cron('0 9 * * *') // Run at 9 AM every day
+  async sendEventReminders(): Promise<void> {
+    this.logger.log('🔔 Checking for event reminders...');
 
-    const queryBuilder = this.notificationRepository
-      .createQueryBuilder('notification')
-      .where('notification.userId = :userId', { userId });
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(0, 0, 0, 0);
 
-    queryBuilder.andWhere('notification.type = :type', { 
-      type: type || NotificationType.IN_APP 
-    });
+    const dayAfterTomorrow = new Date(tomorrow);
+    dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 1);
 
-    if (status) {
-      queryBuilder.andWhere('notification.status = :status', { status });
+    // Query events using startTime (not startDate) and status (not isPublished)
+    const events = await this.eventsRepo
+      .createQueryBuilder('event')
+      .where('event.startTime >= :tomorrow', { tomorrow })
+      .andWhere('event.startTime < :dayAfterTomorrow', { dayAfterTomorrow })
+      .andWhere('event.status = :status', { status: 'published' })
+      .getMany();
+
+    for (const event of events) {
+      // Get tickets for this event with order and user relations
+      const tickets = await this.ticketsRepo.find({
+        where: { eventId: event.id },
+        relations: ['order', 'order.user'],
+      });
+
+      // Group tickets by user
+      const usersMap = new Map<string, { user: User; tickets: Ticket[] }>();
+
+      for (const ticket of tickets) {
+        if (!ticket.order?.user) continue;
+
+        const userId = ticket.order.user.id;
+        if (!usersMap.has(userId)) {
+          usersMap.set(userId, {
+            user: ticket.order.user,
+            tickets: [],
+          });
+        }
+        usersMap.get(userId).tickets.push(ticket);
+      }
+
+      // Send reminder to each user
+      for (const [userId, { user, tickets: userTickets }] of usersMap) {
+        const eventStartTime = (event as any).startTime || (event as any).eventDate;
+        const eventDate = eventStartTime ? new Date(eventStartTime) : new Date();
+
+        const data = {
+          userName: user.name || user.email,
+          eventName: (event as any).title,
+          eventDate: eventDate.toLocaleDateString(),
+          eventTime: eventDate.toLocaleTimeString(),
+          eventLocation: (event as any).location,
+          // Use ticketNumber (not ticketCode)
+          ticketNumbers: userTickets.map((t) => t.ticketNumber),
+        };
+
+        this.logger.log(`Sending reminder email to ${user.email}`);
+        await this.emailService.sendReminderEmail(user.email, user.id, data);
+      }
     }
 
-    queryBuilder.orderBy('notification.createdAt', 'DESC');
-
-    const skip = (page - 1) * limit;
-    queryBuilder.skip(skip).take(limit);
-
-    const [data, total] = await queryBuilder.getManyAndCount();
-
-    const formattedData = data.map(notification => ({
-      id: notification.id,
-      subject: notification.subject,
-      message: notification.message,
-      type: notification.type,
-      status: notification.status,
-      payload: notification.payload ? JSON.parse(notification.payload) : null,
-      createdAt: notification.createdAt,
-    }));
-
-    return {
-      data: formattedData,
-      meta: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      },
-    };
+    this.logger.log(
+      `Sent reminders for ${events.length} events on ${tomorrow.toDateString()}`,
+    );
   }
 
+  async sendOrderExpiryNotification(orderId: string): Promise<void> {
+    this.logger.log(`Order expiry notification for order ${orderId}`);
+
+    const order = await this.ordersRepo.findOne({
+      where: { id: orderId },
+      relations: ['user', 'event'],
+    });
+
+    if (order && order.user && order.event) {
+      const data = {
+        userName: order.user.name || order.user.email,
+        orderId: order.id,
+        eventName: (order.event as any).title,
+        expiryDate: new Date().toISOString(),
+      };
+
+      await this.emailService.sendExpiryEmail(
+        order.user.email,
+        order.user.id,
+        data,
+      );
+    }
+  }
+
+  async getUserNotifications(userId: string): Promise<Notification[]> {
+    return this.notificationsRepo.find({
+      where: { userId },
+      order: { createdAt: 'DESC' },
+    });
+  }
 
   async getUnreadCount(userId: string): Promise<number> {
-    return await this.notificationRepository.count({
-      where: { 
-        userId, 
-        type: NotificationType.IN_APP,
-        status: NotificationStatus.SENT,
-      },
+    return this.notificationsRepo.count({
+      where: { userId, status: 'pending' },
     });
   }
 
-
-  async findOne(id: string, userId?: string) {
-    const where: any = { id };
-    if (userId) {
-      where.userId = userId;
-    }
-
-    const notification = await this.notificationRepository.findOne({ where });
-
-    if (!notification) {
-      throw new NotFoundException('Notification not found');
-    }
-
-    return {
-      ...notification,
-      payload: notification.payload ? JSON.parse(notification.payload) : null,
-    };
-  }
-
-
-  async deleteNotification(id: string, userId: string) {
-    const notification = await this.notificationRepository.findOne({
-      where: { id, userId, type: NotificationType.IN_APP },
+  async getNotificationById(
+    id: string,
+    userId: string,
+  ): Promise<Notification> {
+    const notification = await this.notificationsRepo.findOne({
+      where: { id, userId },
     });
 
     if (!notification) {
-      throw new NotFoundException('Notification not found');
+      throw new NotFoundException(`Notification with ID ${id} not found`);
     }
 
-    await this.notificationRepository.remove(notification);
-
-    return {
-      message: 'Notification deleted successfully',
-    };
+    return notification;
   }
 
+  async markAsRead(id: string, userId: string): Promise<Notification> {
+    const notification = await this.getNotificationById(id, userId);
+    notification.status = 'read';
+    return this.notificationsRepo.save(notification);
+  }
 
-  async deleteAll(userId: string) {
-    const result = await this.notificationRepository
+  async markMultipleAsRead(ids: string[], userId: string): Promise<void> {
+    await this.notificationsRepo
       .createQueryBuilder()
-      .delete()
-      .from(Notification)
-      .where('userId = :userId', { userId })
-      .andWhere('type = :type', { type: NotificationType.IN_APP })
+      .update(Notification)
+      .set({ status: 'read' })
+      .where('id IN (:...ids)', { ids })
+      .andWhere('userId = :userId', { userId })
       .execute();
-
-    return {
-      message: `${result.affected} notifications deleted`,
-      affected: result.affected,
-    };
   }
 
-  async getPendingScheduledDue(now = new Date()) {
-    return await this.notificationRepository.find({
-      where: [
-        { status: NotificationStatus.PENDING, scheduledAt: IsNull() },
-        { status: NotificationStatus.PENDING, scheduledAt: LessThanOrEqual(now) },
-      ],
-      relations: ['user'],
-    });
+  async markAllAsRead(userId: string): Promise<void> {
+    await this.notificationsRepo
+      .createQueryBuilder()
+      .update(Notification)
+      .set({ status: 'read' })
+      .where('userId = :userId', { userId })
+      .andWhere('status != :status', { status: 'read' })
+      .execute();
+  }
+
+  async deleteNotification(id: string, userId: string): Promise<void> {
+    const notification = await this.getNotificationById(id, userId);
+    await this.notificationsRepo.remove(notification);
+  }
+
+  async deleteAllNotifications(userId: string): Promise<void> {
+    await this.notificationsRepo.delete({ userId });
   }
 }

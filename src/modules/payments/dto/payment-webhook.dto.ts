@@ -4,33 +4,29 @@ import {
     IsOptional,
     IsNumber,
     IsEnum,
-    IsUUID,
     IsDateString,
     IsBoolean,
     IsEmail,
 } from 'class-validator';
-import { XenditWebhookStatus } from 'src/common/enums/status-xendit.enum';
 import { Type } from 'class-transformer';
+import { XenditWebhookStatus } from 'src/common/enums/status-xendit.enum'; 
 
-// Kita ubah interface dari xendit.types.ts menjadi class DTO
-export class XenditWebhookDto {
+export class PaymentWebhookDto {
     @IsString()
     @IsNotEmpty()
     id: string;
 
-    // Kita asumsikan external_id adalah UUID order Anda.
-    @IsUUID()
+    @IsString()
     @IsNotEmpty()
     external_id: string;
 
-    // Validasi menggunakan Enum yang baru kita buat
     @IsEnum(XenditWebhookStatus)
     @IsNotEmpty()
     status: XenditWebhookStatus;
 
     @IsNumber()
     @IsNotEmpty()
-    @Type(() => Number) // Membantu transformasi jika payload mengirim angka sebagai string
+    @Type(() => Number)
     amount: number;
 
     @IsDateString()
@@ -40,8 +36,6 @@ export class XenditWebhookDto {
     @IsDateString()
     @IsNotEmpty()
     updated: string;
-
-    // --- Bidang Opsional ---
 
     @IsOptional()
     @IsString()

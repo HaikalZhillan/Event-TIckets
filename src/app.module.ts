@@ -13,7 +13,6 @@ import { EventCategoriesModule } from './modules/event-categories/event-categori
 import { EventsModule } from './modules/events/events.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { TicketsModule } from './modules/tickets/tickets.module';
-import { PaymentsModule } from 'src/modules/payments/payments.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { BackgroundJobsModule } from './background-jobs/background-jobs.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
@@ -26,6 +25,8 @@ import xenditConfig from './config/xendit.config';
 import mailConfig from './config/mail.config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TestModule } from './test/test.module';
+import { PaymentModule } from './modules/payments/payment.module';
+import { UploadsController } from '../uploads/uploads.controller';
 
 
 @Module({
@@ -70,13 +71,13 @@ import { TestModule } from './test/test.module';
     EventsModule,
     OrdersModule,
     TicketsModule,
-    PaymentsModule,
+    PaymentModule,
     NotificationsModule,
     BackgroundJobsModule,
     MailModule,
     TestModule,
   ],
-  controllers: [AppController],
+  controllers: [AppController, UploadsController],
   providers: [
     AppService,
     {

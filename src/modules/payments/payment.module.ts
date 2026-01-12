@@ -1,13 +1,22 @@
 import { forwardRef, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { XenditService } from './xendit.service';
-import { OrdersModule } from '../order/orders.module';
-import { XenditController } from './xendit.controller';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { OrdersModule } from '../orders/orders.module';
+import { PaymentsController } from './payments.controller';
+import { PaymentService } from './payments.service';
+import { Payment } from '../../entities/payment.entity';
+import { Order } from '../../entities/order.entity';
+import { TicketsModule } from '../tickets/tickets.module';
 
 @Module({
-    imports: [ConfigModule, forwardRef(() => OrdersModule)],
-    providers: [XenditService],
-    controllers: [XenditController],
-    exports: [XenditService],
+  imports: [
+    ConfigModule,
+    TypeOrmModule.forFeature([Payment, Order]),
+    forwardRef(() => OrdersModule),
+    forwardRef(() => TicketsModule), // Add this line
+  ],
+  providers: [PaymentService],
+  controllers: [PaymentsController],
+  exports: [PaymentService],
 })
-export class XenditModule {}
+export class PaymentModule {}

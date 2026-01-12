@@ -1,4 +1,3 @@
-//Order.Service.ts
 import {
   Injectable,
   NotFoundException,
@@ -18,12 +17,14 @@ import { FilterOrderDto } from './dto/filter-order.dto';
 
 import { MailService } from '../../mail/mail.service';
 import { TicketsService } from '../tickets/tickets.service';
-import { PaymentsService } from '../payments/payments.service';
-
 import { OrderStatus } from 'src/common/enums/order.enums';
+import { PaymentService } from '../payments/payments.service';
+import { PaymentStatus } from 'src/common/enums/payment.enums';
 
 @Injectable()
 export class OrdersService {
+  // REMOVED: createTicketsForPaidOrder stub and updateOrderStatus: any;
+
   private readonly logger = new Logger(OrdersService.name);
 
   constructor(
@@ -33,8 +34,8 @@ export class OrdersService {
     private readonly eventRepository: Repository<Event>,
     private readonly mailService: MailService,
     private readonly ticketsService: TicketsService,
-    @Inject(forwardRef(() => PaymentsService))
-    private readonly paymentsService: PaymentsService,
+    @Inject(forwardRef(() => PaymentService))
+    private readonly paymentsService: PaymentService,
   ) {}
 
   private generateOrderNumber(): string {
@@ -42,7 +43,9 @@ export class OrdersService {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
-    const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+    const random = Math.floor(Math.random() * 10000)
+      .toString()
+      .padStart(4, '0');
     return `ORD-${year}${month}${day}-${random}`;
   }
 
@@ -51,33 +54,42 @@ export class OrdersService {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
-    const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+    const random = Math.floor(Math.random() * 10000)
+      .toString()
+      .padStart(4, '0');
     return `INV-${year}${month}${day}-${random}`;
   }
 
   async create(userId: string, createOrderDto: CreateOrderDto) {
     const { eventId, quantity } = createOrderDto;
 
-    this.logger.log(`Creating order for user=${userId} event=${eventId} qty=${quantity}`);
+    this.logger.log(
+      `Creating order for user=${userId} event=${eventId} qty=${quantity}`,
+    );
 
     const event = await this.eventRepository.findOne({
       where: { id: eventId },
       relations: ['category'],
     });
 
-    if (!event) throw new NotFoundException(`Event with ID '${eventId}' not found`);
+    if (!event)
+      throw new NotFoundException(`Event with ID '${eventId}' not found`);
 
     const eventStatus = (event as any).status || 'published';
-    if (eventStatus !== 'published') throw new BadRequestException('Event is not available for booking');
+    if (eventStatus !== 'published')
+      throw new BadRequestException('Event is not available for booking');
 
     const eventStartTime = (event as any).startTime || (event as any).eventDate;
     if (eventStartTime && new Date(eventStartTime) < new Date()) {
       throw new BadRequestException('Event has already passed');
     }
 
-    const availableTickets = (event as any).quota ?? (event as any).availableTickets ?? 0;
+    const availableTickets =
+      (event as any).quota ?? (event as any).availableTickets ?? 0;
     if (availableTickets < quantity) {
-      throw new BadRequestException(`Only ${availableTickets} tickets available`);
+      throw new BadRequestException(
+        `Only ${availableTickets} tickets available`,
+      );
     }
 
     const unitPrice = Number(event.price);
@@ -102,11 +114,14 @@ export class OrdersService {
     });
 
     const savedOrder = await this.orderRepository.save(order);
-    this.logger.log(`Order created: ${savedOrder.id} (${savedOrder.orderNumber})`);
+    this.logger.log(
+      `Order created: ${savedOrder.id} (${savedOrder.orderNumber})`,
+    );
 
     try {
       if ('quota' in event) (event as any).quota -= quantity;
-      else if ('availableTickets' in event) (event as any).availableTickets -= quantity;
+      else if ('availableTickets' in event)
+        (event as any).availableTickets -= quantity;
       await this.eventRepository.save(event);
     } catch (e) {
       await this.orderRepository.delete({ id: savedOrder.id });
@@ -127,10 +142,13 @@ export class OrdersService {
 
       try {
         if ('quota' in event) (event as any).quota += quantity;
-        else if ('availableTickets' in event) (event as any).availableTickets += quantity;
+        else if ('availableTickets' in event)
+          (event as any).availableTickets += quantity;
         await this.eventRepository.save(event);
       } catch (restoreErr) {
-        this.logger.error(`Failed to restore quota after payment fail: ${restoreErr.message}`);
+        this.logger.error(
+          `Failed to restore quota after payment fail: ${restoreErr.message}`,
+        );
       }
 
       await this.orderRepository.delete({ id: savedOrder.id });
@@ -158,7 +176,9 @@ export class OrdersService {
         } as any);
       }
     } catch (emailError) {
-      this.logger.warn(`Failed to send order created email: ${emailError.message}`);
+      this.logger.warn(
+        `Failed to send order created email: ${emailError.message}`,
+      );
     }
 
     return {
@@ -195,7 +215,13 @@ export class OrdersService {
   }
 
   async findAll(filterDto: FilterOrderDto, userId?: string, userRole?: string) {
-    const { status, page = 1, limit = 10, sortBy = 'createdAt', sortOrder = 'DESC' } = filterDto;
+    const {
+      status,
+      page = 1,
+      limit = 10,
+      sortBy = 'createdAt',
+      sortOrder = 'DESC',
+    } = filterDto;
 
     const queryBuilder = this.orderRepository
       .createQueryBuilder('order')
@@ -211,7 +237,7 @@ export class OrdersService {
       queryBuilder.andWhere('order.status = :status', { status });
     }
 
-    queryBuilder.orderBy(`order.${sortBy}`, sortOrder as 'ASC' | 'DESC');
+    queryBuilder.orderBy(`order.${sortBy}`, sortOrder);
 
     const skip = (page - 1) * limit;
     queryBuilder.skip(skip).take(limit);
@@ -230,7 +256,8 @@ export class OrdersService {
       event: {
         id: order.event?.id,
         title: (order.event as any)?.title,
-        startTime: (order.event as any)?.startTime || (order.event as any)?.eventDate,
+        startTime:
+          (order.event as any)?.startTime || (order.event as any)?.eventDate,
       },
       user:
         userRole === 'admin'
@@ -270,7 +297,9 @@ export class OrdersService {
     if (!order) throw new NotFoundException(`Order with ID '${id}' not found`);
 
     if (userRole !== 'admin' && order.userId !== userId) {
-      throw new ForbiddenException('You do not have permission to view this order');
+      throw new ForbiddenException(
+        'You do not have permission to view this order',
+      );
     }
 
     return {
@@ -289,7 +318,8 @@ export class OrdersService {
         title: (order.event as any)?.title,
         description: (order.event as any)?.description,
         location: (order.event as any)?.location,
-        startTime: (order.event as any)?.startTime || (order.event as any)?.eventDate,
+        startTime:
+          (order.event as any)?.startTime || (order.event as any)?.eventDate,
         price: order.event?.price,
         category: (order.event as any)?.category?.name,
       },
@@ -321,33 +351,49 @@ export class OrdersService {
     };
   }
 
+  /**
+   * Update order status - this is the main method called by PaymentService
+   */
   async updateStatus(id: string, status: OrderStatus, paymentData?: any) {
+    this.logger.log(`🔄 Starting updateStatus for order ${id} to ${status}`);
+
     const order = await this.orderRepository.findOne({
       where: { id },
       relations: ['event', 'user', 'payment', 'tickets'],
     });
 
-    if (!order) throw new NotFoundException(`Order with ID '${id}' not found`);
+    if (!order) {
+      this.logger.error(`❌ Order with ID '${id}' not found`);
+      throw new NotFoundException(`Order with ID '${id}' not found`);
+    }
 
     if (order.status === status) {
-      this.logger.log(`Idempotent updateStatus: order=${id} already=${status}`);
+      this.logger.log(
+        `ℹ️ Idempotent updateStatus: order=${id} already=${status}`,
+      );
       return order;
     }
 
     const oldStatus = order.status;
-    this.logger.log(`Updating order ${id} status: ${oldStatus} → ${status}`);
+    this.logger.log(`📝 Updating order ${id} status: ${oldStatus} → ${status}`);
 
     order.status = status;
 
+    // Handle cancellation/expiration - restore quota
     if (
       (status === OrderStatus.CANCELLED || status === OrderStatus.EXPIRED) &&
-      (oldStatus === OrderStatus.PENDING || oldStatus === OrderStatus.AWAITING_PAYMENT)
+      (oldStatus === OrderStatus.PENDING ||
+        oldStatus === OrderStatus.AWAITING_PAYMENT)
     ) {
-      const event = await this.eventRepository.findOne({ where: { id: order.eventId } });
+      const event = await this.eventRepository.findOne({
+        where: { id: order.eventId },
+      });
       if (event) {
         if ('quota' in event) (event as any).quota += order.quantity;
-        else if ('availableTickets' in event) (event as any).availableTickets += order.quantity;
+        else if ('availableTickets' in event)
+          (event as any).availableTickets += order.quantity;
         await this.eventRepository.save(event);
+        this.logger.log(`♻️ Restored ${order.quantity} tickets to event quota`);
       }
 
       if (order.tickets?.length) {
@@ -363,41 +409,174 @@ export class OrdersService {
     }
 
     const savedOrder = await this.orderRepository.save(order);
+    this.logger.log(`✅ Order ${id} status saved as ${status}`);
 
-    if (status === OrderStatus.PAID && oldStatus !== OrderStatus.PAID && order.user && order.event) {
+    // Handle PAID status - generate tickets and send email
+    if (status === OrderStatus.PAID && oldStatus !== OrderStatus.PAID) {
+      this.logger.log(`🎉 Order ${id} is now PAID! Processing post-payment...`);
+
       try {
-        const eventStartTime = (order.event as any).startTime || (order.event as any).eventDate;
-
+        // Step 1: Generate tickets
         let tickets = order.tickets;
         if (!tickets || tickets.length === 0) {
+          this.logger.log(
+            `🎫 Generating ${order.quantity} tickets for order ${id}...`,
+          );
+
+          // Add debug log before ticket generation
+          this.logger.log(
+            `🔍 Order details: userId=${order.userId}, eventId=${order.eventId}`,
+          );
+
           tickets = await this.ticketsService.generateTicketsForOrder(id);
+          this.logger.log(
+            `✅ Generated ${tickets.length} tickets successfully!`,
+          );
+
+          // Log each ticket
+          tickets.forEach((t, i) => {
+            this.logger.log(
+              `   Ticket ${i + 1}: ${t.ticketNumber} | Seat: ${t.seatNumber}`,
+            );
+            this.logger.log(`      QR: ${t.qrCodeUrl}`);
+            this.logger.log(`      PDF: ${t.pdfUrl}`);
+          });
+        } else {
+          this.logger.log(`ℹ️ Order already has ${tickets.length} tickets`);
         }
 
-        await this.mailService.sendOrderPaidEmail({
-          email: order.user.email,
-          userName: order.user.name || order.user.email,
-          orderNumber: order.orderNumber,
-          invoiceNumber: order.invoiceNumber,
-          eventTitle: (order.event as any).title,
-          eventLocation: (order.event as any).location,
-          eventStartTime,
-          quantity: order.quantity,
-          totalAmount: order.totalAmount,
-          paidAt: order.payment?.paidAt || new Date(),
-          paymentMethod: paymentData?.paymentMethod || order.payment?.paymentMethod || 'Unknown',
-          tickets: tickets?.map((t: any) => ({
-            id: t.id,
-            ticketNumber: t.id,
-            qrCodeUrl: t.qrCodeUrl,
-            pdfUrl: t.pdfUrl,
-          })),
-        } as any);
+        // Step 2: Send email with tickets
+        if (order.user && order.event) {
+          const eventStartTime =
+            (order.event as any).startTime || (order.event as any).eventDate;
+
+          this.logger.log(
+            `📧 Preparing payment confirmation email for ${order.user.email}...`,
+          );
+
+          // Create email data
+          const emailData = {
+            email: order.user.email,
+            userName: order.user.name || order.user.email,
+            orderNumber: order.orderNumber,
+            invoiceNumber: order.invoiceNumber,
+            eventTitle: (order.event as any).title,
+            eventLocation: (order.event as any).location || 'TBA',
+            eventStartTime: eventStartTime || new Date(),
+            quantity: order.quantity,
+            totalAmount: Number(order.totalAmount),
+            paidAt: paymentData?.paidAt || order.payment?.paidAt || new Date(),
+            paymentMethod:
+              paymentData?.paymentMethod ||
+              order.payment?.paymentMethod ||
+              'Unknown',
+            tickets: tickets.map((t) => ({
+              id: t.id,
+              ticketNumber: t.ticketNumber,
+              seatNumber: t.seatNumber,
+              qrCodeUrl: t.qrCodeUrl || '',
+              pdfUrl: t.pdfUrl || '',
+            })),
+          };
+
+          this.logger.log(
+            `📨 Sending email with ${emailData.tickets.length} tickets...`,
+          );
+
+          // Use try-catch for email sending
+          try {
+            await this.mailService.sendOrderPaidEmail(emailData);
+            this.logger.log(
+              `✅ Payment confirmation email sent to ${order.user.email}`,
+            );
+            this.logger.log(`📬 Check Mailpit at http://localhost:8025`);
+          } catch (emailError) {
+            this.logger.error(`❌ Failed to send email: ${emailError.message}`);
+            this.logger.error(emailError.stack);
+          }
+        } else {
+          this.logger.warn(`⚠️ Cannot send email - missing user or event data`);
+          this.logger.warn(`User: ${order.user ? 'exists' : 'missing'}`);
+          this.logger.warn(`Event: ${order.event ? 'exists' : 'missing'}`);
+        }
       } catch (e) {
-        this.logger.error(`Failed post-paid processing: ${e.message}`);
+        this.logger.error(`❌ Failed post-paid processing: ${e.message}`);
+        this.logger.error(e.stack);
       }
     }
 
     return savedOrder;
+  }
+
+  /**
+   * Simulate payment completion (for testing only)
+   * This bypasses Xendit webhook and directly marks the order as paid
+   */
+  async simulatePaymentComplete(orderId: string) {
+    this.logger.log(`🧪 Simulating payment for order: ${orderId}`);
+
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+      relations: ['event', 'user', 'payment', 'tickets'],
+    });
+
+    if (!order) {
+      throw new NotFoundException(`Order with ID '${orderId}' not found`);
+    }
+
+    if (order.status === OrderStatus.PAID) {
+      throw new BadRequestException('Order is already paid');
+    }
+
+    if (
+      order.status === OrderStatus.CANCELLED ||
+      order.status === OrderStatus.EXPIRED
+    ) {
+      throw new BadRequestException(
+        `Cannot pay order with status '${order.status}'`,
+      );
+    }
+
+    // Update payment status if payment exists
+    if (order.payment) {
+      order.payment.status = PaymentStatus.PAID;
+      order.payment.paidAt = new Date();
+      order.payment.paymentMethod = 'SIMULATED_TEST';
+      await this.orderRepository.manager.save(order.payment);
+      this.logger.log(`✅ Payment record updated to PAID`);
+    }
+
+    // This will trigger ticket generation and email sending
+    await this.updateStatus(orderId, OrderStatus.PAID, {
+      paymentMethod: 'SIMULATED_TEST',
+      paidAt: new Date(),
+    });
+
+    // Reload order with all relations to get the generated tickets
+    const finalOrder = await this.orderRepository.findOne({
+      where: { id: orderId },
+      relations: ['tickets', 'payment', 'event', 'user'],
+    });
+
+    return {
+      message:
+        'Payment simulated successfully! Tickets generated and email sent.',
+      order: {
+        id: finalOrder.id,
+        orderNumber: finalOrder.orderNumber,
+        status: finalOrder.status,
+        paidAt: finalOrder.payment?.paidAt,
+      },
+      tickets: finalOrder.tickets?.map((t) => ({
+        id: t.id,
+        ticketNumber: t.ticketNumber,
+        seatNumber: t.seatNumber,
+        qrCodeUrl: t.qrCodeUrl,
+        pdfUrl: t.pdfUrl,
+        status: t.status,
+      })),
+      ticketCount: finalOrder.tickets?.length || 0,
+    };
   }
 
   async cancel(id: string, userId: string) {
@@ -408,13 +587,21 @@ export class OrdersService {
 
     if (!order) throw new NotFoundException(`Order with ID '${id}' not found`);
 
-    if (order.userId !== userId) throw new ForbiddenException('You do not have permission to cancel this order');
+    if (order.userId !== userId)
+      throw new ForbiddenException(
+        'You do not have permission to cancel this order',
+      );
 
-    if (order.status !== OrderStatus.PENDING && order.status !== OrderStatus.AWAITING_PAYMENT) {
-      throw new BadRequestException(`Cannot cancel order with status '${order.status}'`);
+    if (
+      order.status !== OrderStatus.PENDING &&
+      order.status !== OrderStatus.AWAITING_PAYMENT
+    ) {
+      throw new BadRequestException(
+        `Cannot cancel order with status '${order.status}'`,
+      );
     }
 
-    if (order.payment && order.payment.status === 'paid') {
+    if (order.payment && order.payment.status === PaymentStatus.PAID) {
       throw new BadRequestException('Cannot cancel a paid order');
     }
 
@@ -482,12 +669,18 @@ export class OrdersService {
     if (!order) throw new NotFoundException(`Order '${orderId}' not found`);
 
     if (userRole !== 'admin' && order.userId !== userId) {
-      throw new ForbiddenException('You do not have permission to resend this email');
+      throw new ForbiddenException(
+        'You do not have permission to resend this email',
+      );
     }
 
-    if (!order.user) throw new BadRequestException('Order has no associated user email');
+    if (!order.user)
+      throw new BadRequestException('Order has no associated user email');
 
-    if (order.status === OrderStatus.PENDING || order.status === OrderStatus.AWAITING_PAYMENT) {
+    if (
+      order.status === OrderStatus.PENDING ||
+      order.status === OrderStatus.AWAITING_PAYMENT
+    ) {
       await this.mailService.sendOrderCreatedEmail({
         email: order.user.email,
         userName: order.user.name || order.user.email,
@@ -526,16 +719,24 @@ export class OrdersService {
       relations: ['event', 'user', 'payment'],
     });
 
-    if (!order) throw new NotFoundException(`Order with ID '${orderId}' not found`);
-    if (order.userId !== userId) throw new ForbiddenException('You do not have permission to create payment for this order');
+    if (!order)
+      throw new NotFoundException(`Order with ID '${orderId}' not found`);
+    if (order.userId !== userId)
+      throw new ForbiddenException(
+        'You do not have permission to create payment for this order',
+      );
 
     if (order.status !== OrderStatus.PENDING) {
       throw new BadRequestException('Order cannot be paid in current status');
     }
 
-    if (order.payment) throw new BadRequestException('Payment already exists for this order');
+    if (order.payment)
+      throw new BadRequestException('Payment already exists for this order');
 
-    const paymentResult = await this.paymentsService.create({ orderId: order.id }, userId);
+    const paymentResult = await this.paymentsService.create(
+      { orderId: order.id },
+      userId,
+    );
 
     await this.updateStatus(orderId, OrderStatus.AWAITING_PAYMENT);
 

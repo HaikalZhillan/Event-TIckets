@@ -1,84 +1,129 @@
-import {
-  Controller,
-  Get,
-  Patch,
-  Delete,
-  Param,
-  Query,
-  Body,
-  UseGuards,
-  ParseUUIDPipe,
-  HttpCode,
-  HttpStatus,
+import { 
+  Controller, 
+  Get, 
+  Patch, 
+  Delete, 
+  UseGuards, 
+  Param, 
+  Body 
 } from '@nestjs/common';
+import {
+  ApiTags,
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+} from '@nestjs/swagger';
 import { NotificationsService } from './notifications.service';
-import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
-import { CurrentUser } from 'src/common/decorators/current-user.decorator';
-import { FilterNotificationDto } from './dto/filter-notification.dto';
+import { Notification } from '../../entities/notification.entity';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { User } from '../../entities/user.entity';
 
-@Controller('notifications')
+@ApiTags('Notifications')
+@ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
+@Controller('notifications')
 export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
 
   @Get()
-  findAll(
-    @CurrentUser() user: any,
-    @Query() filterDto: FilterNotificationDto,
-  ) {
-    return this.notificationsService.findByUser(user.id, filterDto);
+  @ApiOperation({ summary: 'Get all notifications for current user' })
+  @ApiResponse({
+    status: 200,
+    description: 'Notifications retrieved successfully',
+  })
+  async getUserNotifications(
+    @CurrentUser() user: User,
+  ): Promise<Notification[]> {
+    return this.notificationsService.getUserNotifications(user.id);
   }
 
   @Get('unread-count')
-  async getUnreadCount(@CurrentUser() user: any) {
+  @ApiOperation({ summary: 'Get unread notification count' })
+  @ApiResponse({
+    status: 200,
+    description: 'Unread count retrieved successfully',
+  })
+  async getUnreadCount(@CurrentUser() user: User): Promise<{ count: number }> {
     const count = await this.notificationsService.getUnreadCount(user.id);
     return { count };
   }
 
   @Get(':id')
-  findOne(
-    @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser() user: any,
-  ) {
-    return this.notificationsService.findOne(id, user.id);
+  @ApiOperation({ summary: 'Get notification by ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Notification retrieved successfully',
+  })
+  async getNotificationById(
+    @Param('id') id: string,
+    @CurrentUser() user: User,
+  ): Promise<Notification> {
+    return this.notificationsService.getNotificationById(id, user.id);
   }
 
   @Patch(':id/read')
-  @HttpCode(HttpStatus.OK)
-  markAsRead(
-    @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser() user: any,
-  ) {
+  @ApiOperation({ summary: 'Mark notification as read' })
+  @ApiResponse({
+    status: 200,
+    description: 'Notification marked as read',
+  })
+  async markAsRead(
+    @Param('id') id: string,
+    @CurrentUser() user: User,
+  ): Promise<Notification> {
     return this.notificationsService.markAsRead(id, user.id);
   }
 
   @Patch('read-multiple')
-  @HttpCode(HttpStatus.OK)
-  markMultipleAsRead(
-    @Body() body: { ids: string[] },
-    @CurrentUser() user: any,
-  ) {
-    return this.notificationsService.markMultipleAsRead(body.ids, user.id);
+  @ApiOperation({ summary: 'Mark multiple notifications as read' })
+  @ApiResponse({
+    status: 200,
+    description: 'Notifications marked as read',
+  })
+  async markMultipleAsRead(
+    @Body('ids') ids: string[],
+    @CurrentUser() user: User,
+  ): Promise<{ message: string }> {
+    await this.notificationsService.markMultipleAsRead(ids, user.id);
+    return { message: 'Notifications marked as read' };
   }
 
   @Patch('read-all')
-  @HttpCode(HttpStatus.OK)
-  markAllAsRead(@CurrentUser() user: any) {
-    return this.notificationsService.markAllAsRead(user.id);
+  @ApiOperation({ summary: 'Mark all notifications as read' })
+  @ApiResponse({
+    status: 200,
+    description: 'All notifications marked as read',
+  })
+  async markAllAsRead(@CurrentUser() user: User): Promise<{ message: string }> {
+    await this.notificationsService.markAllAsRead(user.id);
+    return { message: 'All notifications marked as read' };
   }
 
   @Delete(':id')
-  @HttpCode(HttpStatus.OK)
-  deleteNotification(
-    @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser() user: any,
-  ) {
-    return this.notificationsService.deleteNotification(id, user.id);
+  @ApiOperation({ summary: 'Delete a notification' })
+  @ApiResponse({
+    status: 200,
+    description: 'Notification deleted successfully',
+  })
+  async deleteNotification(
+    @Param('id') id: string,
+    @CurrentUser() user: User,
+  ): Promise<{ message: string }> {
+    await this.notificationsService.deleteNotification(id, user.id);
+    return { message: 'Notification deleted successfully' };
   }
 
   @Delete()
-  @HttpCode(HttpStatus.OK)
-  deleteAll(@CurrentUser() user: any) {
-    return this.notificationsService.deleteAll(user.id);
+  @ApiOperation({ summary: 'Delete all notifications' })
+  @ApiResponse({
+    status: 200,
+    description: 'All notifications deleted successfully',
+  })
+  async deleteAllNotifications(
+    @CurrentUser() user: User,
+  ): Promise<{ message: string }> {
+    await this.notificationsService.deleteAllNotifications(user.id);
+    return { message: 'All notifications deleted successfully' };
   }
 }

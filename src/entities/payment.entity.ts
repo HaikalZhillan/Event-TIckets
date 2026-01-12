@@ -79,6 +79,10 @@ export class Payment {
   @Column({ name: 'paid_at', type: 'timestamp', nullable: true })
   paidAt: Date;
 
+  // ADD THIS: Make expiresAt a proper column
+  @Column({ name: 'expires_at', type: 'timestamp', nullable: true })
+  expiresAt: Date;
+
   @Column({ type: 'jsonb', nullable: true })
   metadata: any;
 
@@ -91,4 +95,6 @@ export class Payment {
   @OneToOne(() => Order, (order) => order.payment, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'order_id' })
   order: Order;
+
+  // REMOVED: expiresAt: any; <-- This was wrong!
 }

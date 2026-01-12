@@ -1,18 +1,22 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Ticket } from 'src/entities/ticket.entity';
+import { ConfigModule } from '@nestjs/config';
+
 import { TicketsController } from './tickets.controller';
 import { TicketsService } from './tickets.service';
-import { Order } from 'src/entities/order.entity';
-import { ConfigModule } from '@nestjs/config';
+import { Ticket } from '../../entities/ticket.entity';
+import { Order } from '../../entities/order.entity';
+import { Event } from '../../entities/event.entity';
+import { OrdersModule } from '../orders/orders.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Ticket, Order]),
     ConfigModule,
+    TypeOrmModule.forFeature([Ticket, Order, Event]),
+    forwardRef(() => OrdersModule), // Add forwardRef here
   ],
-  exports: [TicketsService],
   controllers: [TicketsController],
   providers: [TicketsService],
+  exports: [TicketsService],
 })
 export class TicketsModule {}

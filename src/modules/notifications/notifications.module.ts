@@ -1,15 +1,23 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Notification } from '../../entities/notification.entity';
+import { ScheduleModule } from '@nestjs/schedule';
+import { ConfigModule } from '@nestjs/config';
 import { NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
-import { NotificationsCron } from './cron/notificaitons.cron';
-import { MailModule } from 'src/mail/mail.module';
+import { EmailService } from './email.service';
+import { Notification } from '../../entities/notification.entity';
+import { Event } from '../../entities/event.entity';
+import { Order } from '../../entities/order.entity';
+import { Ticket } from '../../entities/ticket.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Notification]),MailModule],
-  exports: [NotificationsService],
+  imports: [
+    ConfigModule,
+    TypeOrmModule.forFeature([Notification, Event, Order, Ticket]),
+    ScheduleModule.forRoot(),
+  ],
   controllers: [NotificationsController],
-  providers: [NotificationsService, NotificationsCron],
+  providers: [NotificationsService, EmailService],
+  exports: [NotificationsService, EmailService],
 })
 export class NotificationsModule {}
