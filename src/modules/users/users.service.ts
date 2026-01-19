@@ -9,6 +9,13 @@ import * as bcrypt from 'bcrypt';
 import { User } from 'src/entities/user.entity';
 import { Role } from 'src/entities/role.entity';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { UserResponseDto } from './dto/user-response.dto';
+
+// ✅ Interface untuk return type yang jelas
+interface UsersListResponse {
+  total: number;
+  users: UserResponseDto[];
+}
 
 @Injectable()
 export class UsersService {
@@ -19,7 +26,8 @@ export class UsersService {
     private readonly roleRepository: Repository<Role>,
   ) {}
 
-  async findAll() {
+  // ✅ Strict return type
+  async findAll(): Promise<UsersListResponse> {
     const users = await this.userRepository.find({
       select: [
         'id',
@@ -41,7 +49,7 @@ export class UsersService {
         return {
           ...user,
           role: role?.name || 'user',
-        };
+        } as UserResponseDto;
       }),
     );
 
@@ -51,6 +59,7 @@ export class UsersService {
     };
   }
 
+  // ✅ Strict return type
   async findOne(id: string): Promise<User> {
     const user = await this.userRepository.findOne({
       where: { id },
@@ -64,7 +73,8 @@ export class UsersService {
     return user;
   }
 
-  async findOneWithRoleName(id: string) {
+  // ✅ Strict return type
+  async findOneWithRoleName(id: string): Promise<UserResponseDto> {
     const user = await this.userRepository.findOne({
       where: { id },
       select: [
@@ -90,14 +100,19 @@ export class UsersService {
     return {
       ...user,
       role: role?.name || 'user',
-    };
+    } as UserResponseDto;
   }
 
-  async getProfile(userId: string) {
+  // ✅ Strict return type
+  async getProfile(userId: string): Promise<UserResponseDto> {
     return this.findOneWithRoleName(userId);
   }
 
-  async updateProfile(userId: string, updateUserDto: UpdateUserDto) {
+  // ✅ Service TIDAK return message, hanya data
+  async updateProfile(
+    userId: string,
+    updateUserDto: UpdateUserDto,
+  ): Promise<UserResponseDto> {
     const user = await this.userRepository.findOne({ where: { id: userId } });
 
     if (!user) {
@@ -121,21 +136,22 @@ export class UsersService {
     Object.assign(user, updateUserDto);
     await this.userRepository.save(user);
 
-    const { password: _, ...userWithoutPassword } = user;
+    // Exclude password dan role entity
+    const { password: _, role: __, ...userWithoutPassword } = user;
 
     const role = await this.roleRepository.findOne({
       where: { id: user.roleId },
     });
 
+    // ❌ DIHAPUS: message
+    // ✅ Service hanya return data
     return {
-      message: 'Profile updated successfully',
-      user: {
-        ...userWithoutPassword,
-        role: role?.name || 'user',
-      },
-    };
+      ...userWithoutPassword,
+      role: role?.name || 'user',
+    } as UserResponseDto;
   }
 
+  // ✅ Strict return type
   async findByEmail(email: string): Promise<User | null> {
     const user = await this.userRepository.findOne({
       where: { email },
@@ -144,6 +160,7 @@ export class UsersService {
     return user;
   }
 
+  // ✅ Strict return type
   async findById(id: string): Promise<User | null> {
     return await this.userRepository.findOne({
       where: { id },

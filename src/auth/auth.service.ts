@@ -11,6 +11,7 @@ import * as bcrypt from 'bcrypt';
 import { Role } from '../entities/role.entity';
 import { RegisterDto } from '../modules/users/dto/register.dto';
 import { LoginDto } from '../modules/users/dto/login.dto';
+import { UserResponseDto } from '../modules/users/dto/user-response.dto';
 import { User } from 'src/entities/user.entity';
 
 @Injectable()
@@ -23,12 +24,13 @@ export class AuthService {
     private readonly jwtService: JwtService,
   ) {}
 
-   async register(registerDto: RegisterDto) {
+  async register(registerDto: RegisterDto): Promise<UserResponseDto> {
     const { email, name, password } = registerDto;
 
     const existingUser = await this.userRepository.findOne({
       where: { email },
     });
+    
     if (existingUser) {
       throw new ConflictException('Email already registered');
     }
@@ -36,6 +38,7 @@ export class AuthService {
     const userRole = await this.roleRepository.findOne({
       where: { name: 'user' },
     });
+    
     if (!userRole) {
       throw new NotFoundException(
         'Default user role not found. Please seed the database first.',
@@ -54,15 +57,25 @@ export class AuthService {
 
     await this.userRepository.save(user);
 
-    const { password: _, ...userWithoutPassword } = user;
+    // Exclude password dan role entity dari response
+    const { password: _, role: __, ...userWithoutPassword } = user;
 
     return {
-      message: 'User registered successfully',
-      user: userWithoutPassword,
+      ...userWithoutPassword,
+      role: userRole.name, 
     };
   }
 
-  async login(loginDto: LoginDto) {
+  async login(loginDto: LoginDto): Promise<{
+    accessToken: string;
+    user: {
+      id: string;
+      email: string;
+      name: string;
+      role: string;
+      isVerified: boolean;
+    };
+  }> {
     const { email, password } = loginDto;
 
     const user = await this.userRepository.findOne({
@@ -95,7 +108,6 @@ export class AuthService {
     const accessToken = this.jwtService.sign(payload);
 
     return {
-      message: 'Login successful',
       accessToken,
       user: {
         id: user.id,
@@ -107,7 +119,7 @@ export class AuthService {
     };
   }
 
-  async getCurrentUser(userId: string) {
+  async getCurrentUser(userId: string): Promise<UserResponseDto> {
     const user = await this.userRepository.findOne({
       where: { id: userId },
     });
@@ -115,12 +127,13 @@ export class AuthService {
     if (!user) {
       throw new NotFoundException('User not found');
     }
-    
+
     const role = await this.roleRepository.findOne({
       where: { id: user.roleId },
     });
 
-    const { password: _, ...userWithoutPassword } = user;
+    // Exclude password dan role entity
+    const { password: _, role: __, ...userWithoutPassword } = user;
 
     return {
       ...userWithoutPassword,
@@ -128,7 +141,7 @@ export class AuthService {
     };
   }
 
-  async validateUser(userId: string) {
+  async validateUser(userId: string): Promise<UserResponseDto & { roleName: string }> {
     const user = await this.userRepository.findOne({
       where: { id: userId },
     });
@@ -141,10 +154,11 @@ export class AuthService {
       where: { id: user.roleId },
     });
 
-    const { password: _, ...userWithoutPassword } = user;
+    const { password: _, role: __, ...userWithoutPassword } = user;
 
     return {
       ...userWithoutPassword,
+      role: role?.name || 'user',
       roleName: role?.name || 'user',
     };
   }
